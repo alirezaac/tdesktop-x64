@@ -1,0 +1,55 @@
+version: 1.0.{build}
+
+image: Visual Studio 2022
+
+clone_folder: C:\TBuild\tdesktop-x64
+clone_depth: 1
+
+environment:
+  TBUILD: C:\TBuild
+  LibrariesPath: C:\TBuild\Libraries\win64
+  PYTHONUTF8: 1
+
+build: off
+
+init:
+  - cmd: git config --global core.autocrlf input
+  - cmd: git config --global user.email "build@example.com"
+  - cmd: git config --global user.name "AppVeyor"
+
+before_build:
+  - cmd: |
+      mkdir C:\TBuild\Libraries 2>nul
+      wmic logicaldisk get caption,freespace,size
+
+build_script:
+  - cmd: |
+      for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+      if not defined VSPATH echo Visual Studio with the x64 toolset was not found. & exit /b 1
+      call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+      if errorlevel 1 exit /b 1
+
+      call C:\TBuild\tdesktop-x64\Telegram\build\prepare\win.bat silent
+      if errorlevel 1 exit /b 1
+
+      wmic logicaldisk get caption,freespace,size
+
+      cd C:\TBuild\tdesktop-x64\Telegram
+      call configure.bat ^
+        -D TDESKTOP_API_TEST=ON ^
+        -D CMAKE_CONFIGURATION_TYPES=Release ^
+        -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF ^
+        -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+        -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
+        -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+      if errorlevel 1 exit /b 1
+
+      cd C:\TBuild\tdesktop-x64
+      cmake --build out --config Release --parallel
+      if errorlevel 1 exit /b 1
+
+artifacts:
+  - path: out\Release\Telegram.exe
+    name: Telegram
+  - path: out\Release\Updater.exe
+    name: Updater

@@ -1,0 +1,69 @@
+version: 2.1
+
+orbs:
+  win: circleci/windows@5.0
+
+jobs:
+  build:
+    executor:
+      name: win/server-2022
+      size: medium
+      shell: cmd.exe
+
+    environment:
+      PYTHONUTF8: 1
+
+    steps:
+      - checkout
+
+      - run:
+          name: Report free disk space.
+          shell: cmd.exe
+          command: wmic logicaldisk get caption,freespace,size
+
+      - run:
+          name: Build the libraries.
+          shell: cmd.exe
+          no_output_timeout: 3h
+          command: |
+            for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+            if not defined VSPATH echo Visual Studio with the x64 toolset was not found. & exit /b 1
+            call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+            if errorlevel 1 exit /b 1
+            call Telegram\build\prepare\win.bat silent
+            if errorlevel 1 exit /b 1
+            wmic logicaldisk get caption,freespace,size
+
+      - run:
+          name: Build Telegram Desktop.
+          shell: cmd.exe
+          no_output_timeout: 3h
+          command: |
+            for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSPATH=%%i"
+            call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat"
+            if errorlevel 1 exit /b 1
+            cd Telegram
+            call configure.bat ^
+              -D TDESKTOP_API_TEST=ON ^
+              -D CMAKE_CONFIGURATION_TYPES=Release ^
+              -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF ^
+              -D CMAKE_MSVC_DEBUG_INFORMATION_FORMAT= ^
+              -D DESKTOP_APP_DISABLE_AUTOUPDATE=OFF ^
+              -D DESKTOP_APP_DISABLE_CRASH_REPORTS=OFF
+            if errorlevel 1 exit /b 1
+            cd ..
+            cmake --build out --config Release --parallel
+            if errorlevel 1 exit /b 1
+
+      - store_artifacts:
+          path: out\Release\Telegram.exe
+          destination: Telegram.exe
+
+      - store_artifacts:
+          path: out\Release\Updater.exe
+          destination: Updater.exe
+
+workflows:
+  windows:
+    jobs:
+      - build
